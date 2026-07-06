@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #0a0e17;
+  color: #e2e8f0;
+}
+
+/* Thin scrollbars to match the dark theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0f1420;
+}
+*::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}

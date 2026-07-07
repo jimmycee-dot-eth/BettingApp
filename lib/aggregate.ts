@@ -1,7 +1,7 @@
 import type { EventsResponse, MarketEvent } from "./types";
 import { ALL_PROVIDERS } from "./providers";
 import { mockEvents } from "./sources/mock";
-import { fetchOddsApi, fetchOddsApiFutures } from "./sources/oddsapi";
+import { fetchOddsApi, fetchOddsApiFutures, fetchActiveSports } from "./sources/oddsapi";
 import { fetchPolymarket } from "./sources/polymarket";
 import { fetchKalshi } from "./sources/kalshi";
 import { attachPredictions, attachPredictionsToFutures, type PredictionQuote } from "./match";
@@ -45,10 +45,12 @@ async function buildFresh(): Promise<EventsResponse> {
     };
   }
 
-  // Live path — fetch all sources in parallel; degrade gracefully.
+  // Discover which sports are actually live (free /sports call), then fetch
+  // odds only for those. Prediction markets are independent.
+  const active = await fetchActiveSports();
   const [odds, futures, poly, kalshi] = await Promise.all([
-    fetchOddsApi(),
-    fetchOddsApiFutures(),
+    fetchOddsApi(active),
+    fetchOddsApiFutures(active),
     fetchPolymarket(),
     fetchKalshi(),
   ]);

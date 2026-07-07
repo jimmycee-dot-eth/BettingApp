@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { MarketEvent, ArbResult, Provider } from "@/lib/types";
-import { stakePlan } from "@/lib/arb";
+import { stakePlan, bestValueGap } from "@/lib/arb";
 import { fmtOdds, fmtPct, fmtMoney, fmtCents, timeUntil } from "./format";
 
 export function EventCard({
@@ -19,7 +19,20 @@ export function EventCard({
   enabled: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
+  const isFutures = event.category === "futures";
   const plan = arb.isArb ? stakePlan(arb, bankroll) : [];
+
+  const predictionKeys = new Set(
+    [...providerMap.values()].filter((p) => p.kind === "prediction").map((p) => p.key),
+  );
+  const valueGap = isFutures ? bestValueGap(event, enabled, predictionKeys) : null;
+
+  // Futures can have many competitors — show favourites (shortest odds) first
+  // and cap the grid; the full field lives in the expandable table.
+  const gridOutcomes = isFutures
+    ? [...arb.outcomes].filter((o) => o.bestDecimalOdds > 0).sort((a, b) => a.bestDecimalOdds - b.bestDecimalOdds).slice(0, 6)
+    : arb.outcomes;
+  const hiddenCount = isFutures ? arb.outcomes.filter((o) => o.bestDecimalOdds > 0).length - gridOutcomes.length : 0;
 
   return (
     <div
@@ -36,16 +49,16 @@ export function EventCard({
               </span>
               {event.league && <span>{event.league}</span>}
               <span>·</span>
-              <span>{timeUntil(event.commenceTime)}</span>
+              <span>{isFutures ? "futures" : timeUntil(event.commenceTime)}</span>
             </div>
             <h3 className="mt-1 truncate text-base font-semibold text-white">{event.title}</h3>
           </div>
-          <ArbBadge arb={arb} />
+          {isFutures ? <ValueBadge gap={valueGap} /> : <ArbBadge arb={arb} />}
         </div>
 
         {/* Best price per outcome */}
-        <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(event.outcomes.length, 3)}, minmax(0, 1fr))` }}>
-          {arb.outcomes.map((o) => {
+        <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(gridOutcomes.length, 3)}, minmax(0, 1fr))` }}>
+          {gridOutcomes.map((o) => {
             const prov = o.bestProviderKey ? providerMap.get(o.bestProviderKey) : undefined;
             return (
               <div key={o.outcomeKey} className="rounded-lg bg-base-850 p-3">
@@ -66,30 +79,51 @@ export function EventCard({
             );
           })}
         </div>
+        {hiddenCount > 0 && (
+          <div className="mt-2 text-xs text-slate-500">+{hiddenCount} more competitors — see full table</div>
+        )}
 
         {/* Summary row */}
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <Metric
-            label="Market total"
-            value={fmtPct(arb.totalImpliedProb * 100)}
-            hint={arb.isArb ? "under 100% = free money" : "over 100% = house edge"}
-            good={arb.isArb}
-          />
-          <Metric
-            label={arb.isArb ? "Guaranteed profit" : "House edge"}
-            value={arb.isArb ? fmtPct(arb.profitPct) : fmtPct(arb.overroundPct)}
-            good={arb.isArb}
-          />
-          <Metric label="Best price gap" value={fmtPct(arb.maxGapPct)} />
+          {isFutures ? (
+            <>
+              <Metric label="Competitors" value={String(arb.outcomes.filter((o) => o.bestDecimalOdds > 0).length)} />
+              <Metric
+                label="Best book↔prediction gap"
+                value={valueGap ? fmtPct(valueGap.gapPct) : "—"}
+                hint="largest price difference between a bookie and a prediction market on one competitor"
+              />
+            </>
+          ) : (
+            <>
+              <Metric
+                label="Market total"
+                value={fmtPct(arb.totalImpliedProb * 100)}
+                hint={arb.isArb ? "under 100% = free money" : "over 100% = house edge"}
+                good={arb.isArb}
+              />
+              <Metric
+                label={arb.isArb ? "Guaranteed profit" : "House edge"}
+                value={arb.isArb ? fmtPct(arb.profitPct) : fmtPct(arb.overroundPct)}
+                good={arb.isArb}
+              />
+              <Metric label="Best price gap" value={fmtPct(arb.maxGapPct)} />
+            </>
+          )}
           <button
             onClick={() => setOpen((v) => !v)}
             className="ml-auto text-accent hover:underline"
           >
-            {open ? "hide all odds" : "all odds & stake plan"}
+            {open ? "hide all odds" : isFutures ? "all odds" : "all odds & stake plan"}
           </button>
         </div>
 
-        {/* Arb call-to-action strip */}
+        {/* Futures value strip */}
+        {isFutures && valueGap && (
+          <ValueStrip gap={valueGap} providerMap={providerMap} event={event} enabled={enabled} predictionKeys={predictionKeys} />
+        )}
+
+        {/* Arb call-to-action strip (matches only) */}
         {arb.isArb && (
           <div className="mt-3 rounded-lg bg-arb-soft p-3 text-sm">
             <div className="font-semibold text-arb">
@@ -115,6 +149,65 @@ export function EventCard({
       {open && (
         <OddsTable event={event} arb={arb} providerMap={providerMap} enabled={enabled} />
       )}
+    </div>
+  );
+}
+
+function ValueBadge({ gap }: { gap: ReturnType<typeof bestValueGap> }) {
+  if (!gap) {
+    return (
+      <div className="shrink-0 rounded-lg bg-base-800 px-3 py-1.5 text-center">
+        <div className="text-[10px] font-semibold uppercase leading-none text-slate-500">Futures</div>
+        <div className="font-mono text-sm font-bold leading-tight text-slate-400">book only</div>
+      </div>
+    );
+  }
+  return (
+    <div className="shrink-0 rounded-lg bg-base-800 px-3 py-1.5 text-center">
+      <div className="text-[10px] font-semibold uppercase leading-none text-accent">Value</div>
+      <div className="font-mono text-lg font-bold leading-tight text-accent">{fmtPct(gap.gapPct, 0)}</div>
+    </div>
+  );
+}
+
+function ValueStrip({
+  gap,
+  providerMap,
+  event,
+  enabled,
+  predictionKeys,
+}: {
+  gap: NonNullable<ReturnType<typeof bestValueGap>>;
+  providerMap: Map<string, Provider>;
+  event: MarketEvent;
+  enabled: Set<string>;
+  predictionKeys: Set<string>;
+}) {
+  // Which provider offers the better (higher) price on the value competitor?
+  const outcome = event.outcomes.find((o) => o.label === gap.label);
+  let bestProv: Provider | undefined;
+  let bestOdds = 0;
+  const wantPrediction = gap.betterSide === "prediction";
+  for (const q of outcome?.quotes ?? []) {
+    if (!enabled.has(q.providerKey)) continue;
+    const isPred = predictionKeys.has(q.providerKey);
+    if (isPred !== wantPrediction) continue;
+    if (q.decimalOdds > bestOdds) {
+      bestOdds = q.decimalOdds;
+      bestProv = providerMap.get(q.providerKey);
+    }
+  }
+  const otherOdds = wantPrediction ? gap.bookOdds : gap.predOdds;
+  return (
+    <div className="mt-3 rounded-lg bg-base-850 p-3 text-sm">
+      <span className="font-semibold text-accent">Best value: </span>
+      <span className="text-slate-200">
+        back <span className="text-white">{gap.label}</span> @{" "}
+        <span className="font-mono font-semibold text-white">{fmtOdds(bestOdds)}</span>
+        {bestProv && <span className="text-slate-400"> ({bestProv.name})</span>} —{" "}
+        <span className="text-accent">{fmtPct(gap.gapPct, 0)} longer</span> than{" "}
+        {wantPrediction ? "the best book's" : "the prediction market's"} {fmtOdds(otherOdds)}
+      </span>
     </div>
   );
 }

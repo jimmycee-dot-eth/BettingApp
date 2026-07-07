@@ -34,6 +34,9 @@ export interface MarketEvent {
   title: string; // e.g. "Collingwood Magpies vs Carlton Blues"
   commenceTime: string; // ISO
   outcomes: Outcome[];
+  // "match" = a single head-to-head fixture; "futures" = an outright/tournament
+  // winner market with many competitors (e.g. World Cup winner).
+  category: "match" | "futures";
   // Which sources contributed to this event.
   hasSportsbook: boolean;
   hasPrediction: boolean;

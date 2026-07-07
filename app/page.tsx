@@ -18,6 +18,7 @@ export default function Home() {
   const [arbOnly, setArbOnly] = useState(false);
   const [sort, setSort] = useState<Sort>("arb");
   const [sportFilter, setSportFilter] = useState<string>("all");
+  const [tab, setTab] = useState<"match" | "futures">("match");
 
   async function load() {
     setLoading(true);
@@ -49,19 +50,33 @@ export default function Home() {
 
   const sports = useMemo(() => {
     const s = new Set<string>();
-    (data?.events ?? []).forEach((e) => s.add(e.sport));
+    (data?.events ?? []).filter((e) => e.category === tab).forEach((e) => s.add(e.sport));
     return ["all", ...Array.from(s)];
+  }, [data, tab]);
+
+  const counts = useMemo(() => {
+    const c = { match: 0, futures: 0 };
+    (data?.events ?? []).forEach((e) => (c[e.category]++));
+    return c;
   }, [data]);
 
   const rows = useMemo(() => {
     if (!data) return [];
+    const isFutures = tab === "futures";
     return data.events
+      .filter((e) => e.category === tab)
       .filter((e) => sportFilter === "all" || e.sport === sportFilter)
       .map((e) => ({ event: e, arb: computeArb(e, enabled) }))
-      // keep only events that still have every outcome priced under the filter
-      .filter((r) => r.arb.outcomes.every((o) => o.bestDecimalOdds > 0))
-      .filter((r) => (arbOnly ? r.arb.isArb : true))
+      // matches need every outcome priced; futures just need 2+ priced competitors
+      .filter((r) =>
+        isFutures
+          ? r.arb.outcomes.filter((o) => o.bestDecimalOdds > 0).length >= 2
+          : r.arb.outcomes.every((o) => o.bestDecimalOdds > 0),
+      )
+      // "arbs only" only applies to matches (futures are never risk-free arbs)
+      .filter((r) => (arbOnly && !isFutures ? r.arb.isArb : true))
       .sort((a, b) => {
+        if (isFutures) return b.arb.maxGapPct - a.arb.maxGapPct; // biggest value gaps first
         if (sort === "arb") {
           // arbs first (by profit), then smallest overround
           if (a.arb.isArb !== b.arb.isArb) return a.arb.isArb ? -1 : 1;
@@ -71,7 +86,7 @@ export default function Home() {
         if (sort === "gap") return b.arb.maxGapPct - a.arb.maxGapPct;
         return (b.event.hot ?? 0) - (a.event.hot ?? 0);
       });
-  }, [data, enabled, arbOnly, sort, sportFilter]);
+  }, [data, enabled, arbOnly, sort, sportFilter, tab]);
 
   const arbCount = rows.filter((r) => r.arb.isArb).length;
 
@@ -98,6 +113,26 @@ export default function Home() {
           risk-free arbitrage.
         </p>
       </header>
+
+      {/* Category tabs */}
+      <div className="mb-5 inline-flex rounded-lg border border-base-700 bg-base-900 p-1 text-sm">
+        <button
+          onClick={() => setTab("match")}
+          className={`rounded-md px-4 py-1.5 font-medium transition ${
+            tab === "match" ? "bg-base-700 text-white" : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Live matches{data ? ` (${counts.match})` : ""}
+        </button>
+        <button
+          onClick={() => setTab("futures")}
+          className={`rounded-md px-4 py-1.5 font-medium transition ${
+            tab === "futures" ? "bg-base-700 text-white" : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Futures{data ? ` (${counts.futures})` : ""}
+        </button>
+      </div>
 
       {/* Controls */}
       <section className="mb-6 space-y-5 rounded-xl border border-base-700 bg-base-900 p-4">
@@ -150,28 +185,34 @@ export default function Home() {
             </select>
           </label>
 
-          <label className="flex items-center gap-2">
-            <span className="text-slate-400">Sort</span>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as Sort)}
-              className="rounded-lg border border-base-700 bg-base-950 px-2 py-1.5 text-white outline-none"
-            >
-              <option value="arb">Best arbitrage</option>
-              <option value="gap">Biggest price gap</option>
-              <option value="hot">Hottest</option>
-            </select>
-          </label>
+          {tab === "match" ? (
+            <>
+              <label className="flex items-center gap-2">
+                <span className="text-slate-400">Sort</span>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as Sort)}
+                  className="rounded-lg border border-base-700 bg-base-950 px-2 py-1.5 text-white outline-none"
+                >
+                  <option value="arb">Best arbitrage</option>
+                  <option value="gap">Biggest price gap</option>
+                  <option value="hot">Hottest</option>
+                </select>
+              </label>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={arbOnly}
-              onChange={(e) => setArbOnly(e.target.checked)}
-              className="h-4 w-4 accent-arb"
-            />
-            <span className="text-slate-300">Arbs only</span>
-          </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={arbOnly}
+                  onChange={(e) => setArbOnly(e.target.checked)}
+                  className="h-4 w-4 accent-arb"
+                />
+                <span className="text-slate-300">Arbs only</span>
+              </label>
+            </>
+          ) : (
+            <span className="text-xs text-slate-500">Sorted by biggest book↔prediction gap</span>
+          )}
 
           <button
             onClick={load}

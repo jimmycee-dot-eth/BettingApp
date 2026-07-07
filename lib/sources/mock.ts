@@ -27,6 +27,7 @@ function ev(
   hoursFromNow: number,
   hot: number,
   outcomes: Outcome[],
+  category: "match" | "futures" = "match",
 ): MarketEvent {
   const hasSportsbook = outcomes.some((o) =>
     o.quotes.some((q) => q.providerKey !== "polymarket" && q.providerKey !== "kalshi"),
@@ -42,6 +43,7 @@ function ev(
     title,
     commenceTime: new Date(Date.now() + hoursFromNow * 3600_000).toISOString(),
     outcomes,
+    category,
     hasSportsbook,
     hasPrediction,
     hot,
@@ -102,10 +104,22 @@ export function mockEvents(): MarketEvent[] {
     ]),
 
     // --- NBA championship futures, prediction heavy, no arb
-    ev("nba-champ", "NBA", "basketball_nba_championship", "NBA Futures", "NBA Championship — Winner (OKC vs Field)", 2000, 80, [
+    ev("nba-champ", "NBA", "basketball_nba_championship", "NBA Championship", "NBA Championship — Winner (OKC vs Field)", 2000, 80, [
       outcome("okc", "Oklahoma City Thunder", { polymarket: 3.4, kalshi: 3.5, sportsbet: 3.25, tab: 3.3 }),
       outcome("field", "Field", { polymarket: 1.38, kalshi: 1.36, sportsbet: 1.4, tab: 1.42 }),
-    ]),
+    ], "futures"),
+
+    // --- World Cup Winner futures: sportsbook outrights vs Polymarket/Kalshi
+    //     per-nation "Will X win?" prices. Book margins make a full arb rare,
+    //     but the per-nation gaps (book vs prediction) are the useful signal.
+    ev("wc-winner", "Soccer", "soccer_fifa_world_cup_winner", "World Cup Winner", "FIFA World Cup — Winner", 240, 99, [
+      outcome("argentina", "Argentina", { sportsbet: 5.0, tab: 4.8, ladbrokes_au: 5.2, polymarket: 4.6, kalshi: 4.75 }),
+      outcome("france", "France", { sportsbet: 5.5, tab: 5.5, ladbrokes_au: 5.4, polymarket: 6.2, kalshi: 6.0 }),
+      outcome("brazil", "Brazil", { sportsbet: 6.5, tab: 6.0, ladbrokes_au: 6.5, polymarket: 7.1, kalshi: 6.8 }),
+      outcome("england", "England", { sportsbet: 7.0, tab: 7.5, ladbrokes_au: 7.0, polymarket: 6.5, kalshi: 6.9 }),
+      outcome("spain", "Spain", { sportsbet: 8.0, tab: 8.5, ladbrokes_au: 7.5, polymarket: 9.0, kalshi: 8.5 }),
+      outcome("usa", "USA", { sportsbet: 26.0, tab: 24.0, ladbrokes_au: 28.0, polymarket: 19.0, kalshi: 21.0 }),
+    ], "futures"),
 
     // --- A-League (AU soccer), 3-way, books only
     ev("aleague-syd-mel", "Soccer", "soccer_australia_aleague", "A-League", "Sydney FC vs Melbourne Victory", 44, 72, [

@@ -89,6 +89,71 @@ export function attachPredictions(
   return matched;
 }
 
+// Attach prediction quotes onto FUTURES markets. Prediction markets phrase
+// these per-competitor ("Will Brazil win the World Cup?"), so we identify the
+// tournament by title tokens, then the competitor within it, and attach the
+// YES price to that competitor's outcome. Returns match count.
+export function attachPredictionsToFutures(
+  futures: MarketEvent[],
+  predictions: PredictionQuote[],
+): number {
+  let matched = 0;
+  for (const pq of predictions) {
+    const qTokens = tokens(pq.title);
+    if (qTokens.size === 0) continue;
+
+    // Find the futures market whose title (tournament) best matches.
+    let bestEvent: MarketEvent | null = null;
+    let bestScore = 0;
+    for (const ev of futures) {
+      const score = overlap(qTokens, tokens(ev.title));
+      if (score > bestScore) {
+        bestScore = score;
+        bestEvent = ev;
+      }
+    }
+    // Require the tournament name to be clearly present (e.g. "world"+"cup").
+    if (!bestEvent || bestScore < 2) continue;
+
+    if (isBinaryYesNo(pq)) {
+      // "Will <competitor> win?" — YES maps to the competitor named in the title.
+      const yes = pq.outcomes.find((o) => /yes/i.test(o.label)) ?? pq.outcomes[0];
+      const target = competitorInTitle(bestEvent, qTokens);
+      if (target) {
+        addQuote(bestEvent, target, pq.provider, yes.decimalOdds, yes.price);
+        matched++;
+      }
+    } else {
+      // Multi-named market: map each named outcome onto a competitor.
+      for (const po of pq.outcomes) {
+        const target = bestOutcomeFor(bestEvent, po.label);
+        if (target) {
+          addQuote(bestEvent, target, pq.provider, po.decimalOdds, po.price);
+          matched++;
+        }
+      }
+    }
+  }
+  return matched;
+}
+
+// Which competitor outcome is named in the (tournament) question title?
+function competitorInTitle(ev: MarketEvent, qTokens: Set<string>): string | null {
+  const titleTokens = tokens(ev.title);
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const o of ev.outcomes) {
+    // Only consider label tokens that aren't part of the tournament name.
+    const labelTokens = new Set([...tokens(o.label)].filter((t) => !titleTokens.has(t)));
+    const score = overlap(qTokens, labelTokens);
+    if (score > bestScore) {
+      bestScore = score;
+      best = o.key;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 function isBinaryYesNo(pq: PredictionQuote): boolean {
   return (
     pq.outcomes.length === 2 &&

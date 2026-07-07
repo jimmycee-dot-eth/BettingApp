@@ -1,10 +1,10 @@
 import type { EventsResponse, MarketEvent } from "./types";
 import { ALL_PROVIDERS } from "./providers";
 import { mockEvents } from "./sources/mock";
-import { fetchOddsApi } from "./sources/oddsapi";
+import { fetchOddsApi, fetchOddsApiFutures } from "./sources/oddsapi";
 import { fetchPolymarket } from "./sources/polymarket";
 import { fetchKalshi } from "./sources/kalshi";
-import { attachPredictions, type PredictionQuote } from "./match";
+import { attachPredictions, attachPredictionsToFutures, type PredictionQuote } from "./match";
 
 // In-memory cache so repeated page loads / manual refreshes within the TTL are
 // served without spending any Odds API credits. The route is force-dynamic, so
@@ -45,21 +45,31 @@ async function buildFresh(): Promise<EventsResponse> {
     };
   }
 
-  // Live path — fetch all three sources in parallel; degrade gracefully.
-  const [odds, poly, kalshi] = await Promise.all([
+  // Live path — fetch all sources in parallel; degrade gracefully.
+  const [odds, futures, poly, kalshi] = await Promise.all([
     fetchOddsApi(),
+    fetchOddsApiFutures(),
     fetchPolymarket(),
     fetchKalshi(),
   ]);
-  notes.push(...odds.notes, ...poly.notes, ...kalshi.notes);
+  notes.push(...odds.notes, ...futures.notes, ...poly.notes, ...kalshi.notes);
 
-  let events: MarketEvent[] = odds.events;
+  const matchEvents: MarketEvent[] = odds.events;
+  const futuresEvents: MarketEvent[] = futures.events;
 
   const predictions: PredictionQuote[] = [...poly.quotes, ...kalshi.quotes];
-  if (events.length > 0 && predictions.length > 0) {
-    const n = attachPredictions(events, predictions);
-    notes.push(`Matched ${n} prediction-market quote sets onto sportsbook events.`);
+  if (predictions.length > 0) {
+    if (matchEvents.length > 0) {
+      const n = attachPredictions(matchEvents, predictions);
+      notes.push(`Matched ${n} prediction quotes onto live fixtures.`);
+    }
+    if (futuresEvents.length > 0) {
+      const n = attachPredictionsToFutures(futuresEvents, predictions);
+      notes.push(`Matched ${n} prediction quotes onto futures markets.`);
+    }
   }
+
+  const events: MarketEvent[] = [...matchEvents, ...futuresEvents];
 
   // If live sportsbook came back empty (bad key, quota, off-season), fall back
   // to mock so the UI is never blank.

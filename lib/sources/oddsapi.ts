@@ -9,14 +9,27 @@ import type { MarketEvent, Outcome, Quote } from "../types";
 
 const BASE = "https://api.the-odds-api.com/v4";
 
-// Sports we care about for AU users. The Odds API sport keys.
+// Head-to-head fixtures. The Odds API sport keys.
 const SPORT_KEYS: { key: string; sport: string; league: string }[] = [
   { key: "aussierules_afl", sport: "AFL", league: "AFL" },
   { key: "rugbyleague_nrl", sport: "NRL", league: "NRL" },
   { key: "basketball_nba", sport: "NBA", league: "NBA" },
   { key: "soccer_epl", sport: "Soccer", league: "EPL" },
   { key: "soccer_australia_aleague", sport: "Soccer", league: "A-League" },
+  { key: "soccer_fifa_world_cup", sport: "Soccer", league: "World Cup" },
   { key: "tennis_atp_wimbledon", sport: "Tennis", league: "ATP" },
+];
+
+// Outright / tournament-winner (futures) markets. These take markets=outrights
+// and return one "event" per competition whose outcomes are the competitors.
+// Prediction markets (Polymarket/Kalshi) overlap heavily with these — a "Will
+// X win the World Cup?" market maps straight onto a competitor here.
+const FUTURES_KEYS: { key: string; sport: string; league: string }[] = [
+  { key: "soccer_fifa_world_cup_winner", sport: "Soccer", league: "World Cup Winner" },
+  { key: "basketball_nba_championship_winner", sport: "NBA", league: "NBA Championship" },
+  { key: "americanfootball_nfl_super_bowl_winner", sport: "NFL", league: "Super Bowl" },
+  { key: "soccer_uefa_champs_league_winner", sport: "Soccer", league: "UCL Winner" },
+  { key: "cricket_icc_world_cup_winner", sport: "Cricket", league: "Cricket WC Winner" },
 ];
 
 interface OddsApiOutcome { name: string; price: number }
@@ -87,6 +100,7 @@ export async function fetchOddsApi(): Promise<{ events: MarketEvent[]; notes: st
           title: `${e.home_team} vs ${e.away_team}`,
           commenceTime: e.commence_time,
           outcomes,
+          category: "match",
           hasSportsbook: true,
           hasPrediction: false,
           hot: e.bookmakers.length, // more books quoting => hotter
@@ -103,5 +117,69 @@ export async function fetchOddsApi(): Promise<{ events: MarketEvent[]; notes: st
         (quotaUsed != null ? ` (${quotaUsed} used this month).` : "."),
     );
   }
+  return { events: all, notes };
+}
+
+function competitorKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+// Fetch outright / tournament-winner markets (futures). One MarketEvent per
+// competition; outcomes are the competitors (e.g. each World Cup nation).
+export async function fetchOddsApiFutures(): Promise<{ events: MarketEvent[]; notes: string[] }> {
+  const key = process.env.ODDS_API_KEY;
+  const notes: string[] = [];
+  if (!key) return { events: [], notes: [] };
+
+  const all: MarketEvent[] = [];
+  for (const s of FUTURES_KEYS) {
+    try {
+      const url =
+        `${BASE}/sports/${s.key}/odds?apiKey=${key}` +
+        `&regions=au&markets=outrights&oddsFormat=decimal&dateFormat=iso`;
+      const res = await fetch(url, { next: { revalidate: 600 } });
+      if (!res.ok) {
+        // Off-season / unavailable futures markets 404 — skip quietly.
+        if (res.status !== 404 && res.status !== 422) {
+          notes.push(`Odds API ${s.key}: HTTP ${res.status}`);
+        }
+        continue;
+      }
+      const data = (await res.json()) as OddsApiEvent[];
+      for (const e of data) {
+        const outcomesMap = new Map<string, Outcome>();
+        for (const bm of e.bookmakers) {
+          const mkt = bm.markets.find((m) => m.key === "outrights");
+          if (!mkt) continue;
+          for (const o of mkt.outcomes) {
+            const ck = competitorKey(o.name);
+            if (!ck) continue;
+            if (!outcomesMap.has(ck)) {
+              outcomesMap.set(ck, { key: ck, label: o.name, quotes: [] });
+            }
+            outcomesMap.get(ck)!.quotes.push({ providerKey: bm.key, decimalOdds: o.price });
+          }
+        }
+        const outcomes = [...outcomesMap.values()];
+        if (outcomes.length < 2) continue;
+        all.push({
+          id: `fut-${e.id}`,
+          sport: s.sport,
+          sportKey: s.key,
+          league: s.league,
+          title: s.league,
+          commenceTime: e.commence_time,
+          outcomes,
+          category: "futures",
+          hasSportsbook: true,
+          hasPrediction: false,
+          hot: outcomes.length, // more competitors quoted => richer market
+        });
+      }
+    } catch (err) {
+      notes.push(`Odds API ${s.key}: ${(err as Error).message}`);
+    }
+  }
+  if (all.length > 0) notes.push(`Odds API: ${all.length} futures markets.`);
   return { events: all, notes };
 }

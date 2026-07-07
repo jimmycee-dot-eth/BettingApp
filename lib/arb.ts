@@ -46,7 +46,11 @@ export function computeArb(
 
   const totalImpliedProb = bests.reduce((s, b) => s + b.impliedProb, 0);
   const overroundPct = (totalImpliedProb - 1) * 100;
-  const isArb = allOutcomesPriced && totalImpliedProb < 1;
+  // Only a "match" market with every outcome priced is a complete, mutually
+  // exclusive field where sum(implied) < 1 is a genuine risk-free arb. Futures
+  // markets quote only a subset of competitors, so the Dutch-book maths does
+  // not hold — never flag them as arbs (we surface value gaps instead).
+  const isArb = event.category !== "futures" && allOutcomesPriced && totalImpliedProb < 1;
   const profitPct = isArb ? (1 / totalImpliedProb - 1) * 100 : 0;
 
   const stakeSplit = bests.map((b) => ({
@@ -80,6 +84,49 @@ export function computeArb(
     stakeSplit,
     maxGapPct,
   };
+}
+
+// For futures: the biggest price discrepancy between the best sportsbook and
+// the best prediction-market quote on a single competitor. This is the "value"
+// signal — where one venue is offering materially longer odds than the other.
+export interface ValueGap {
+  label: string;
+  bookOdds: number;
+  predOdds: number;
+  // The venue offering the higher (better-to-back) price, and by how much.
+  betterSide: "book" | "prediction";
+  gapPct: number;
+}
+
+export function bestValueGap(
+  event: MarketEvent,
+  enabledProviders: Set<string>,
+  predictionKeys: Set<string>,
+): ValueGap | null {
+  let best: ValueGap | null = null;
+  for (const o of event.outcomes) {
+    let bookOdds = 0;
+    let predOdds = 0;
+    for (const q of o.quotes) {
+      if (!enabledProviders.has(q.providerKey)) continue;
+      if (predictionKeys.has(q.providerKey)) predOdds = Math.max(predOdds, q.decimalOdds);
+      else bookOdds = Math.max(bookOdds, q.decimalOdds);
+    }
+    if (bookOdds <= 0 || predOdds <= 0) continue;
+    const hi = Math.max(bookOdds, predOdds);
+    const lo = Math.min(bookOdds, predOdds);
+    const gapPct = ((hi - lo) / lo) * 100;
+    if (!best || gapPct > best.gapPct) {
+      best = {
+        label: o.label,
+        bookOdds,
+        predOdds,
+        betterSide: predOdds > bookOdds ? "prediction" : "book",
+        gapPct,
+      };
+    }
+  }
+  return best;
 }
 
 // Given a bankroll, return the exact per-outcome stakes and locked payout.

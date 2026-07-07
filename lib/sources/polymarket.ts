@@ -19,7 +19,7 @@ export async function fetchPolymarket(): Promise<{ quotes: PredictionQuote[]; no
   const notes: string[] = [];
   try {
     const url = `${GAMMA}/markets?closed=false&order=volume&ascending=false&limit=120`;
-    const res = await fetch(url, { next: { revalidate: 30 } });
+    const res = await fetch(url, { next: { revalidate: 600 } });
     if (!res.ok) return { quotes: [], notes: [`Polymarket: HTTP ${res.status}`] };
     const data = (await res.json()) as GammaMarket[];
     const quotes: PredictionQuote[] = [];

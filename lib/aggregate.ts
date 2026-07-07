@@ -6,12 +6,29 @@ import { fetchPolymarket } from "./sources/polymarket";
 import { fetchKalshi } from "./sources/kalshi";
 import { attachPredictions, type PredictionQuote } from "./match";
 
+// In-memory cache so repeated page loads / manual refreshes within the TTL are
+// served without spending any Odds API credits. The route is force-dynamic, so
+// this is our primary quota guard (a warm serverless instance keeps it hot).
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+let cache: { at: number; data: EventsResponse } | null = null;
+
 // Builds the unified event list from whatever sources are available.
 //
 // - No ODDS_API_KEY  -> pure mock data (fully functional demo).
 // - With ODDS_API_KEY -> live AU sportsbook events, enriched best-effort with
 //   live Polymarket/Kalshi quotes matched onto them by title.
 export async function buildEvents(): Promise<EventsResponse> {
+  if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
+    const ageSec = Math.round((Date.now() - cache.at) / 1000);
+    return { ...cache.data, notes: [...cache.data.notes, `Served from cache (${ageSec}s old).`] };
+  }
+
+  const data = await buildFresh();
+  cache = { at: Date.now(), data };
+  return data;
+}
+
+async function buildFresh(): Promise<EventsResponse> {
   const notes: string[] = [];
   const hasKey = !!process.env.ODDS_API_KEY;
 

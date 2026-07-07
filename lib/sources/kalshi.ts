@@ -18,7 +18,7 @@ interface KalshiMarket {
 export async function fetchKalshi(): Promise<{ quotes: PredictionQuote[]; notes: string[] }> {
   try {
     const url = `${BASE}/markets?limit=200&status=open`;
-    const res = await fetch(url, { next: { revalidate: 30 } });
+    const res = await fetch(url, { next: { revalidate: 600 } });
     if (!res.ok) return { quotes: [], notes: [`Kalshi: HTTP ${res.status}`] };
     const data = (await res.json()) as { markets?: KalshiMarket[] };
     const markets = data.markets ?? [];

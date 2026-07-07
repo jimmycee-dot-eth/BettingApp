@@ -36,9 +36,9 @@ export default function Home() {
   }
 
   useEffect(() => {
+    // Load once on mount. No polling — odds are cached server-side for 10 min
+    // to conserve the free API quota; use the Refresh button to re-pull.
     load();
-    const t = setInterval(load, 60_000); // refresh live odds each minute
-    return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

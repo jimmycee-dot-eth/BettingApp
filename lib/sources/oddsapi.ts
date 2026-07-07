@@ -46,12 +46,18 @@ export async function fetchOddsApi(): Promise<{ events: MarketEvent[]; notes: st
   }
 
   const all: MarketEvent[] = [];
+  let quotaRemaining: string | null = null;
+  let quotaUsed: string | null = null;
   for (const s of SPORT_KEYS) {
     try {
       const url =
         `${BASE}/sports/${s.key}/odds?apiKey=${key}` +
         `&regions=au&markets=h2h&oddsFormat=decimal&dateFormat=iso`;
-      const res = await fetch(url, { next: { revalidate: 60 } });
+      // Cache each sport's odds for 10 minutes to conserve the free-tier quota.
+      const res = await fetch(url, { next: { revalidate: 600 } });
+      // The Odds API reports remaining/used credits on every response header.
+      quotaRemaining = res.headers.get("x-requests-remaining") ?? quotaRemaining;
+      quotaUsed = res.headers.get("x-requests-used") ?? quotaUsed;
       if (!res.ok) {
         notes.push(`Odds API ${s.key}: HTTP ${res.status}`);
         continue;
@@ -91,5 +97,11 @@ export async function fetchOddsApi(): Promise<{ events: MarketEvent[]; notes: st
     }
   }
   if (all.length > 0) notes.push(`Odds API: ${all.length} live sportsbook events.`);
+  if (quotaRemaining != null) {
+    notes.push(
+      `Odds API quota: ${quotaRemaining} credits remaining` +
+        (quotaUsed != null ? ` (${quotaUsed} used this month).` : "."),
+    );
+  }
   return { events: all, notes };
 }

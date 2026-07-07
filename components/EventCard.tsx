@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { MarketEvent, ArbResult, Provider } from "@/lib/types";
 import { stakePlan, bestValueGap } from "@/lib/arb";
+import { ArbCalculator } from "./ArbCalculator";
 import { fmtOdds, fmtPct, fmtMoney, fmtCents, timeUntil } from "./format";
 
 export function EventCard({
@@ -156,7 +157,12 @@ export function EventCard({
       </div>
 
       {open && (
-        <OddsTable event={event} arb={arb} providerMap={providerMap} enabled={enabled} />
+        <>
+          <OddsTable event={event} arb={arb} providerMap={providerMap} enabled={enabled} />
+          {!isFutures && (
+            <ArbCalculator event={event} arb={arb} bankroll={bankroll} providerMap={providerMap} />
+          )}
+        </>
       )}
     </div>
   );

@@ -129,6 +129,31 @@ export function bestValueGap(
   return best;
 }
 
+// Pure arb calculation from a raw list of decimal odds (one per outcome).
+// Used by the what-if calculator where the user supplies their own prices.
+export function arbFromOdds(odds: number[]): {
+  totalImplied: number;
+  profitPct: number;
+  isArb: boolean;
+  fractions: number[];
+} {
+  const allPriced = odds.length > 0 && odds.every((o) => o > 0);
+  const totalImplied = odds.reduce((s, o) => s + (o > 0 ? 1 / o : 0), 0);
+  const isArb = allPriced && totalImplied < 1;
+  const profitPct = isArb ? (1 / totalImplied - 1) * 100 : 0;
+  const fractions = odds.map((o) => (totalImplied > 0 && o > 0 ? 1 / o / totalImplied : 0));
+  return { totalImplied, profitPct, isArb, fractions };
+}
+
+// The minimum decimal odds needed on one outcome to break even, given the sum
+// of implied probabilities already committed on the OTHER outcomes. Anything
+// longer than this locks in an arbitrage. Returns null if the others already
+// sum to >= 1 (no price on this leg can rescue it).
+export function breakEvenOdds(othersImpliedSum: number): number | null {
+  if (othersImpliedSum >= 1) return null;
+  return 1 / (1 - othersImpliedSum);
+}
+
 // Given a bankroll, return the exact per-outcome stakes and locked payout.
 export function stakePlan(
   arb: ArbResult,

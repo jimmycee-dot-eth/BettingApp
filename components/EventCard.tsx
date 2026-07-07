@@ -127,17 +127,26 @@ export function EventCard({
         {arb.isArb && (
           <div className="mt-3 rounded-lg bg-arb-soft p-3 text-sm">
             <div className="font-semibold text-arb">
-              Arbitrage: stake {fmtMoney(bankroll)} → guaranteed {fmtMoney(bankroll * (1 + arb.profitPct / 100))} back
+              {plan.length}-way arb across {venueCount(plan)} venue{venueCount(plan) > 1 ? "s" : ""}: stake{" "}
+              {fmtMoney(bankroll)} → guaranteed {fmtMoney(bankroll * (1 + arb.profitPct / 100))} back
               <span className="text-arb/80"> (+{fmtMoney(bankroll * (arb.profitPct / 100))})</span>
             </div>
-            <div className="mt-2 flex flex-wrap gap-3">
-              {plan.map((p) => {
+            <div className="mt-2 space-y-1">
+              {plan.map((p, i) => {
                 const prov = p.provider ? providerMap.get(p.provider) : undefined;
                 return (
-                  <div key={p.outcomeKey} className="text-slate-200">
-                    <span className="font-mono font-semibold text-white">{fmtMoney(p.stake)}</span>{" "}
-                    on <span className="text-white">{p.label}</span> @ {fmtOdds(p.onOdds)}
-                    {prov && <span className="text-slate-400"> ({prov.name})</span>}
+                  <div key={p.outcomeKey} className="flex items-center gap-2 text-slate-200">
+                    <span className="text-[11px] font-semibold text-arb/70">Leg {i + 1}</span>
+                    <span className="font-mono font-semibold text-white">{fmtMoney(p.stake)}</span>
+                    <span>on</span>
+                    <span className="text-white">{p.label}</span>
+                    <span className="text-slate-400">@ {fmtOdds(p.onOdds)}</span>
+                    {prov && (
+                      <span className="flex items-center gap-1 text-slate-400">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: prov.color }} />
+                        {prov.name}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -151,6 +160,11 @@ export function EventCard({
       )}
     </div>
   );
+}
+
+// How many distinct providers ("locations") the optimal arb legs span.
+function venueCount(plan: { provider: string | null }[]): number {
+  return new Set(plan.map((p) => p.provider).filter(Boolean)).size;
 }
 
 function ValueBadge({ gap }: { gap: ReturnType<typeof bestValueGap> }) {

@@ -52,6 +52,20 @@ function ev(
 
 export function mockEvents(): MarketEvent[] {
   return [
+    // --- 3-WAY World Cup group match: best Home/Draw/Away each at a different
+    //     venue -> 1/2.10 + 1/3.70 + 1/4.10 = 0.4762+0.2703+0.2439 = 0.9904 (~1.0%)
+    ev("wc-bra-srb", "Soccer", "soccer_fifa_world_cup", "World Cup", "Brazil vs Serbia", 6, 97, [
+      outcome("home", "Brazil", {
+        sportsbet: 2.1, tab: 2.05, ladbrokes_au: 2.02, neds: 2.06, polymarket: 2.0,
+      }),
+      outcome("draw", "Draw", {
+        betfair_ex_au: 3.7, sportsbet: 3.5, tab: 3.6, ladbrokes_au: 3.55, neds: 3.45,
+      }),
+      outcome("away", "Serbia", {
+        neds: 4.1, sportsbet: 3.9, tab: 4.0, ladbrokes_au: 3.95, polymarket: 3.8,
+      }),
+    ]),
+
     // --- Clear ARB: best of 2.14 / 2.02 -> implied 0.4673+0.4950 = 0.9623 (~3.9%)
     ev("afl-coll-carl", "AFL", "aussierules_afl", "AFL", "Collingwood Magpies vs Carlton Blues", 26, 98, [
       outcome("home", "Collingwood Magpies", {

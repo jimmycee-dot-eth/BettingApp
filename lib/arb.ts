@@ -170,3 +170,46 @@ export function stakePlan(
     };
   });
 }
+
+export interface StakeLeg {
+  label: string;
+  provider: string | null;
+  onOdds: number;
+  stake: number;
+}
+
+export interface RoundedPlan {
+  legs: StakeLeg[];
+  totalStaked: number;
+  worstReturn: number; // smallest payout across outcomes (the guaranteed one)
+  worstProfit: number; // worstReturn - totalStaked; the true "locked" profit
+  bestProfit: number; // largest payout - totalStaked
+  stillProfitable: boolean; // worstProfit > 0 after rounding
+}
+
+// Round each leg's stake to a natural figure (e.g. nearest $5) so the bets
+// don't scream "arber" to a bookmaker's risk team. Rounding unbalances the
+// hedge, so the payouts diverge — we report the WORST-CASE outcome as the real
+// guaranteed figure. increment <= 0 means no rounding (exact stakes).
+export function roundStakePlan(
+  legs: { label: string; provider: string | null; onOdds: number; stake: number }[],
+  increment: number,
+): RoundedPlan {
+  const rounded = legs.map((l) => {
+    const stake =
+      increment > 0 ? Math.max(increment, Math.round(l.stake / increment) * increment) : l.stake;
+    return { label: l.label, provider: l.provider, onOdds: l.onOdds, stake };
+  });
+  const totalStaked = rounded.reduce((a, b) => a + b.stake, 0);
+  const returns = rounded.map((l) => l.stake * l.onOdds);
+  const worstReturn = Math.min(...returns);
+  const bestReturn = Math.max(...returns);
+  return {
+    legs: rounded,
+    totalStaked,
+    worstReturn,
+    worstProfit: worstReturn - totalStaked,
+    bestProfit: bestReturn - totalStaked,
+    stillProfitable: worstReturn - totalStaked > 0,
+  };
+}

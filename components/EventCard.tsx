@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import type { MarketEvent, ArbResult, Provider } from "@/lib/types";
-import { stakePlan, bestValueGap } from "@/lib/arb";
+import { stakePlan, bestValueGap, roundStakePlan } from "@/lib/arb";
 import { ArbCalculator } from "./ArbCalculator";
 import { fmtOdds, fmtPct, fmtMoney, fmtCents, timeUntil } from "./format";
+
+const ROUND_OPTIONS = [0, 1, 5, 10, 25, 50];
 
 export function EventCard({
   event,
@@ -20,8 +22,10 @@ export function EventCard({
   enabled: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
+  const [roundInc, setRoundInc] = useState(0); // 0 = exact stakes
   const isFutures = event.category === "futures";
   const plan = arb.isArb ? stakePlan(arb, bankroll) : [];
+  const rounded = arb.isArb ? roundStakePlan(plan, roundInc) : null;
 
   const predictionKeys = new Set(
     [...providerMap.values()].filter((p) => p.kind === "prediction").map((p) => p.key),
@@ -125,18 +129,44 @@ export function EventCard({
         )}
 
         {/* Arb call-to-action strip (matches only) */}
-        {arb.isArb && (
-          <div className="mt-3 rounded-lg bg-arb-soft p-3 text-sm">
-            <div className="font-semibold text-arb">
-              {plan.length}-way arb across {venueCount(plan)} venue{venueCount(plan) > 1 ? "s" : ""}: stake{" "}
-              {fmtMoney(bankroll)} → guaranteed {fmtMoney(bankroll * (1 + arb.profitPct / 100))} back
-              <span className="text-arb/80"> (+{fmtMoney(bankroll * (arb.profitPct / 100))})</span>
+        {arb.isArb && rounded && (
+          <div
+            className={`mt-3 rounded-lg p-3 text-sm ${
+              roundInc > 0 && !rounded.stillProfitable ? "bg-amber-950/40" : "bg-arb-soft"
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className={roundInc > 0 && !rounded.stillProfitable ? "font-semibold text-amber-300" : "font-semibold text-arb"}>
+                {plan.length}-way arb across {venueCount(plan)} venue{venueCount(plan) > 1 ? "s" : ""}:{" "}
+                stake {fmtMoney(rounded.totalStaked)} → {roundInc > 0 ? "guaranteed ≥ " : "guaranteed "}
+                {fmtMoney(rounded.totalStaked + rounded.worstProfit)}
+                <span className={roundInc > 0 && !rounded.stillProfitable ? "text-amber-300/80" : "text-arb/80"}>
+                  {" "}
+                  ({rounded.worstProfit >= 0 ? "+" : ""}
+                  {fmtMoney(rounded.worstProfit)})
+                </span>
+              </div>
+              <label className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span>Round to</span>
+                <select
+                  value={roundInc}
+                  onChange={(e) => setRoundInc(Number(e.target.value))}
+                  className="rounded border border-base-700 bg-base-950 px-1.5 py-1 text-white outline-none"
+                >
+                  {ROUND_OPTIONS.map((v) => (
+                    <option key={v} value={v}>
+                      {v === 0 ? "exact" : `$${v}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
+
             <div className="mt-2 space-y-1">
-              {plan.map((p, i) => {
+              {rounded.legs.map((p, i) => {
                 const prov = p.provider ? providerMap.get(p.provider) : undefined;
                 return (
-                  <div key={p.outcomeKey} className="flex items-center gap-2 text-slate-200">
+                  <div key={i} className="flex items-center gap-2 text-slate-200">
                     <span className="text-[11px] font-semibold text-arb/70">Leg {i + 1}</span>
                     <span className="font-mono font-semibold text-white">{fmtMoney(p.stake)}</span>
                     <span>on</span>
@@ -152,6 +182,23 @@ export function EventCard({
                 );
               })}
             </div>
+
+            {roundInc > 0 && (
+              <div className="mt-2 text-xs text-slate-400">
+                {rounded.stillProfitable ? (
+                  <>
+                    Rounded to ${roundInc} — still profitable in every outcome (worst{" "}
+                    {fmtMoney(rounded.worstProfit)}, best {fmtMoney(rounded.bestProfit)}). Rounding
+                    unbalances the hedge, so returns vary slightly by result.
+                  </>
+                ) : (
+                  <span className="text-amber-300">
+                    ⚠ Rounding to ${roundInc} breaks the arb — worst case {fmtMoney(rounded.worstProfit)}.
+                    Use a smaller increment or a bigger bankroll.
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { MarketEvent, ArbResult, Provider } from "@/lib/types";
-import { stakePlan, bestValueGap, roundStakePlan } from "@/lib/arb";
+import { stakePlan, bestValueGap, roundStakePlan, suggestCleanPlans } from "@/lib/arb";
 import { ArbCalculator } from "./ArbCalculator";
 import { fmtOdds, fmtPct, fmtMoney, fmtCents, timeUntil } from "./format";
 
@@ -26,6 +26,18 @@ export function EventCard({
   const isFutures = event.category === "futures";
   const plan = arb.isArb ? stakePlan(arb, bankroll) : [];
   const rounded = arb.isArb ? roundStakePlan(plan, roundInc) : null;
+  const suggestions =
+    arb.isArb && roundInc > 0 && rounded
+      ? suggestCleanPlans(
+          plan.map((p) => ({ label: p.label, provider: p.provider, onOdds: p.onOdds })),
+          bankroll,
+          roundInc,
+          4,
+        )
+          // drop the one identical to the exact-bankroll rounded plan shown above
+          .filter((s) => s.totalStaked !== rounded.totalStaked)
+          .slice(0, 3)
+      : [];
 
   const predictionKeys = new Set(
     [...providerMap.values()].filter((p) => p.kind === "prediction").map((p) => p.key),
@@ -197,6 +209,35 @@ export function EventCard({
                     Use a smaller increment or a bigger bankroll.
                   </span>
                 )}
+              </div>
+            )}
+
+            {suggestions.length > 0 && (
+              <div className="mt-3 border-t border-arb/20 pt-2">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Cleaner sizes near {fmtMoney(bankroll)} — all legs on ${roundInc}, hedge intact
+                </div>
+                <div className="space-y-1">
+                  {suggestions.map((s, si) => (
+                    <div key={si} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+                      <span className="font-mono font-semibold text-white">{fmtMoney(s.totalStaked)}</span>
+                      <span className="text-slate-500">=</span>
+                      <span className="text-slate-300">
+                        {s.legs.map((l, li) => (
+                          <span key={li}>
+                            {li > 0 && <span className="text-slate-600"> + </span>}
+                            <span className="font-mono text-slate-200">{fmtMoney(l.stake)}</span>{" "}
+                            {l.label}
+                          </span>
+                        ))}
+                      </span>
+                      <span className="text-slate-500">→</span>
+                      <span className="font-mono text-arb">
+                        +{fmtMoney(s.worstProfit)} ({fmtPct(s.profitPct)})
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

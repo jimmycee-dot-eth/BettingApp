@@ -178,6 +178,69 @@ export interface StakeLeg {
   stake: number;
 }
 
+export interface CleanPlan {
+  legs: StakeLeg[];
+  totalStaked: number;
+  worstProfit: number; // guaranteed (worst-case) profit
+  bestProfit: number;
+  profitPct: number; // worst-case profit as % of total staked
+}
+
+// Suggest total stakes NEAR a target where every leg lands on a clean multiple
+// of `increment` while keeping the hedge (near) perfect — better than rounding a
+// fixed bankroll, and the varied totals make bet sizing look organic.
+//
+// A perfect hedge pays the same on every outcome, so we anchor the shortest-odds
+// leg (the biggest stake) to a clean multiple, derive the exact others from the
+// implied common payout, round those to the increment, and keep the sizes whose
+// rounding barely dents the hedge.
+export function suggestCleanPlans(
+  legs: { label: string; provider: string | null; onOdds: number }[],
+  target: number,
+  increment: number,
+  count = 3,
+): CleanPlan[] {
+  if (increment <= 0 || legs.length < 2 || legs.some((l) => l.onOdds <= 0)) return [];
+  const S = legs.reduce((s, l) => s + 1 / l.onOdds, 0);
+  const anchorIdx = legs.reduce((mi, l, i, a) => (l.onOdds < a[mi].onOdds ? i : mi), 0);
+  const oAnchor = legs[anchorIdx].onOdds;
+  const targetAnchorStake = (target * (1 / oAnchor)) / S;
+  const jCenter = Math.round(targetAnchorStake / increment);
+
+  const out: CleanPlan[] = [];
+  const seen = new Set<number>();
+  for (let j = jCenter - 10; j <= jCenter + 10; j++) {
+    if (j <= 0) continue;
+    const sAnchor = j * increment;
+    const payout = sAnchor * oAnchor; // common target payout for a perfect hedge
+    const stakes = legs.map((l, i) =>
+      i === anchorIdx ? sAnchor : Math.max(increment, Math.round(payout / l.onOdds / increment) * increment),
+    );
+    const totalStaked = stakes.reduce((a, b) => a + b, 0);
+    if (seen.has(totalStaked)) continue;
+    seen.add(totalStaked);
+    const returns = stakes.map((s, i) => s * legs[i].onOdds);
+    const worst = Math.min(...returns);
+    const best = Math.max(...returns);
+    const worstProfit = worst - totalStaked;
+    if (worstProfit <= 0) continue; // must stay a genuine arb
+    out.push({
+      legs: legs.map((l, i) => ({ label: l.label, provider: l.provider, onOdds: l.onOdds, stake: stakes[i] })),
+      totalStaked,
+      worstProfit,
+      bestProfit: best - totalStaked,
+      profitPct: (worstProfit / totalStaked) * 100,
+    });
+  }
+  // Closest to the target bankroll first (varying both directions), using the
+  // better hedge as the tiebreak.
+  out.sort(
+    (a, b) =>
+      Math.abs(a.totalStaked - target) - Math.abs(b.totalStaked - target) || b.profitPct - a.profitPct,
+  );
+  return out.slice(0, count);
+}
+
 export interface RoundedPlan {
   legs: StakeLeg[];
   totalStaked: number;
